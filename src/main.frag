@@ -14,6 +14,12 @@ uniform vec2 camCenterWorld;
 uniform float camWorldUnitsPerPixel;
 
 // reprojection (1d) may require extra uniforms here...
+uniform vec2 oldCamCenterWorld;
+uniform float oldCamWorldUnitsPerPixel;
+uniform sampler2D oldFrame;
+uniform bool cChanged; // true if c changed, ignore old frame
+
+#define TRUE_MAX_ITERS 16384.0
 
 // Use this to get a color from your smoothed Julia set escape times.
 vec4 colorTime(float t) {
@@ -50,7 +56,7 @@ vec2 windowToWorld(vec2 windowCoords) {
 
 // For reprojection
 vec2 worldToOldWindow(vec2 worldCoords) {
-    return vec2(0.0);
+    return (worldCoords - oldCamCenterWorld) / oldCamWorldUnitsPerPixel + 0.5 * windowSizePixels;
 }
 
 // For SSAA
@@ -58,13 +64,52 @@ vec2 worldToOldWindow(vec2 worldCoords) {
 // partitions along each dimension. delta((dx, dy)) returns the center of the sub-square
 // which is in the dy'th row and dx'th column (both 0-indexed).
 vec2 delta(vec2 dxy) {
-    return vec2(0.0);
+    return vec2(dxy + 0.5) / float(AA);
 }
-
-
 void main() {
+    
+    vec2 pixelCorner = floor(gl_FragCoord.xy);
+
+    vec4 sum = vec4(0.0);
+    for (int dy = 0; dy < AA; ++dy) {
+        for (int dx = 0; dx < AA; ++dx) {
+            vec2 sampleWindow = pixelCorner + delta(vec2(dx, dy));
+            vec2 world = windowToWorld(sampleWindow);
+            EscapeTime t = escapeTimeSmooth(world);
+            // Points that never escape are inside the set; color them black
+            vec4 color = t.isInf ? vec4(0.0, 0.0, 0.0, 1.0) : colorTime(t.iters);
+
+            // Where was this point on screen last frame? If it was visible,
+            // blend with the last frame's color
+            vec2 oldWindow = worldToOldWindow(world);
+            if (all(greaterThanEqual(oldWindow, vec2(0.0))) &&
+                all(lessThan(oldWindow, windowSizePixels))) {
+                    vec4 oldColor = texture2D(oldFrame, oldWindow / windowSizePixels);
+                    
+                    // alpha: how much to trust the new smaple vs the old frame
+                    // Escaped points use a log scale of their iter count
+                    // Points that didn't escape use MAX_ITER / TRUE_MAX_ITERS
+                    // while moving (MAX_ITERS is low), so the old image is kept
+                    float alpha;
+                    if (cChanged) {
+                        alpha = 1.0;
+                    }
+                    else if (t.isInf) {
+                        alpha = float(MAX_ITERS) / TRUE_MAX_ITERS;
+                    }
+                    else {
+                        alpha = clamp(log(1.0 + max(t.iters, 0.0)) / log(1.0 + TRUE_MAX_ITERS), 0.0, 1.0);
+                    }
+                    color = mix(oldColor, color, alpha);
+
+                }
+                sum += color;
+        }
+    }
+    
     // TODO
-    EscapeTime t = escapeTimeSmooth(windowToWorld(gl_FragCoord.xy));
-    gl_FragColor = t.isInf ? vec4(0.0, 0.0, 0.0, 1.0) : colorTime(t.iters);
+    // EscapeTime t = escapeTimeSmooth(windowToWorld(gl_FragCoord.xy));
+    // gl_FragColor = t.isInf ? vec4(0.0, 0.0, 0.0, 1.0) : colorTime(t.iters);
+    gl_FragColor = sum / float(TOTAL_SAMPLES);
     // gl_FragColor = ... some vec4 rgba colour
 }

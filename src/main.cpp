@@ -4,6 +4,7 @@
 #include "open_sans_semibold.h"
 #include <SFML/Graphics.hpp>
 #include <SFML/OpenGL.hpp>
+#include <SFML/System/Vector2.hpp>
 
 constexpr int TRUE_MAX_ITERS = 16384;
 constexpr int INIT_ITERS = 64;
@@ -39,6 +40,16 @@ int main() {
     // load vertex and fragment shaders:
     sf::Shader shader(std::filesystem::path{"main.vert"}, std::filesystem::path{"main.frag"});
     // ... other shaders can go here...
+    sf::Shader copyShader(std::filesystem::path{"main.vert"}, std::filesystem::path{"copy.frag"});
+
+    // Two buffers that swap each frame, draw into front while reading the
+    // previous frame from back. Smooth = linear filtering when sampling
+    sf::RenderTexture bufferA(window.getSize());
+    sf::RenderTexture bufferB(window.getSize());
+    bufferA.setSmooth(true);
+    bufferB.setSmooth(true);
+    sf::RenderTexture* front = &bufferA;
+    sf::RenderTexture* back = &bufferB;
 
     sf::Font openSansFont(EmbeddedFonts::OpenSans_SemiBold_ttf,
                           EmbeddedFonts::OpenSans_SemiBold_ttf_len);
@@ -56,6 +67,10 @@ int main() {
     float worldUnitsPerPixel = 1.f / window.getSize().y;
     sf::Vector2f camCenterWorld{0.f, 0.f};
     int maxIters = INIT_ITERS;
+
+    sf::Vector2f oldC = c;
+    float oldWorldUnitsPerPixel = worldUnitsPerPixel;
+    sf::Vector2f oldCamCenterWorld = camCenterWorld;
 
     int i = -1;
     while (window.isOpen()) {
@@ -120,17 +135,32 @@ int main() {
         shader.setUniform("camCenterWorld", camCenterWorld);
         shader.setUniform("camWorldUnitsPerPixel", worldUnitsPerPixel);
 
-        window.clear(sf::Color::Black);
-        // TODO something.draw(fullscreenTriangle, &shader);
-        window.draw(fullscreenTriangle, &shader);
-        // this might change as you finish more parts!
+        // // this might change as you finish more parts!
         cText.setString("c = (" + std::to_string(c.x) + ", " + std::to_string(c.y) + ")");
         cTextShadow.setString("c = (" + std::to_string(c.x) + ", " + std::to_string(c.y) + ")");
         window.draw(cTextShadow);
         window.draw(cText);
         window.display();
+        shader.setUniform("oldCamCenterWorld", oldCamCenterWorld);
+        shader.setUniform("oldCamWorldUnitsPerPixel", oldWorldUnitsPerPixel);
+        shader.setUniform("oldFrame", back->getTexture());
+        // On the first frame the back buffer is empty, so treat it like c changed
+        shader.setUniform("cChanged", i == 0 || c != oldC);
+
+        // Render the Julia set into the front buffer
+        front->clear(sf::Color::Black);
+        front->draw(fullscreenTriangle, &shader);
+        front->display();
+
+        copyShader.setUniform("toCopy", front->getTexture());
+        window.clear(sf::Color::Black);
+        window.draw(fullscreenTriangle, &copyShader);
 
         // TODO (reprojection)... update "old" states
+        oldC = c;
+        oldWorldUnitsPerPixel = worldUnitsPerPixel;
+        oldCamCenterWorld = camCenterWorld;
+        std::swap(front, back);
     }
     return 0;
 }
