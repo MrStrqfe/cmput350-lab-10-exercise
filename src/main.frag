@@ -28,16 +28,29 @@ struct EscapeTime {
 // Escape time of iterating z^2 + c
 EscapeTime escapeTimeSmooth(vec2 z) {
     // TODO
+    for (int i = 1; i <= MAX_ITERS; ++i) {
+        if (length(z) > 4.0) {
+            // i is the escape time n, step once more to get z_n
+            z = vec2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) + c;
+            float n = float(i);
+            return EscapeTime(n + 1.0 - log(log(length(z))) / LOG_2, false);
+        }
+        // z = z^2 + c, using (x + iy) ^ 2 = (x^2 - y^2) + i(2xy)
+        z = vec2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) + c;
+    }
+    // Never escaped within MAX_ITERS, so treat the escape time as infinite
+    return EscapeTime(0.0, true);
 }
 
 
 vec2 windowToWorld(vec2 windowCoords) {
-    // TODO
+    // uses the camera uniforms above to convert a window-space (pixels) point to a world-coordinates point.
+    return (windowCoords - 0.5 * windowSizePixels) * camWorldUnitsPerPixel + camCenterWorld;
 }
 
 // For reprojection
 vec2 worldToOldWindow(vec2 worldCoords) {
-    // TODO
+    return vec2(0.0);
 }
 
 // For SSAA
@@ -45,11 +58,13 @@ vec2 worldToOldWindow(vec2 worldCoords) {
 // partitions along each dimension. delta((dx, dy)) returns the center of the sub-square
 // which is in the dy'th row and dx'th column (both 0-indexed).
 vec2 delta(vec2 dxy) {
-    // TODO
+    return vec2(0.0);
 }
 
 
 void main() {
     // TODO
+    EscapeTime t = escapeTimeSmooth(windowToWorld(gl_FragCoord.xy));
+    gl_FragColor = t.isInf ? vec4(0.0, 0.0, 0.0, 1.0) : colorTime(t.iters);
     // gl_FragColor = ... some vec4 rgba colour
 }
